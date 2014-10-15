@@ -21,6 +21,8 @@ except ImportError:
 
 is_py3k = sys.version_info >= (3, 0)
 
+import logging
+_LOGGER = logging.getLogger(__name__)
 
 class AMQPConsumer(object):
     def __init__(self, producer):
@@ -42,6 +44,14 @@ class NonBlockingTaskProducer(TaskProducer):
     def __init__(self, channel=None, *args, **kwargs):
         super(NonBlockingTaskProducer, self).__init__(
             channel, *args, **kwargs)
+        
+        self._message_seq = 0
+        self._acked = 0
+        self._nacked = 0
+        self._unknown_ack = 0
+        self.coroutine_callbacks = {}
+        conn = self.conn_pool.connection()
+        conn.channel.confirm_delivery(callback=self.on_delivery_confirmation, nowait=True)
 
     def publish(self, body, routing_key=None, delivery_mode=None,
                 mandatory=False, immediate=False, priority=0,
@@ -59,10 +69,10 @@ class NonBlockingTaskProducer(TaskProducer):
 
         if callback and not callable(callback):
             raise ValueError('callback should be callable')
-        if callback and not isinstance(self.app.backend,
-                                       (AMQPBackend, RedisBackend)):
-            raise NotImplementedError(
-                'callback can be used only with AMQP or Redis backends')
+#         if callback and not isinstance(self.app.backend,
+#                                        (AMQPBackend, RedisBackend)):
+#             raise NotImplementedError(
+#                 'callback can be used only with AMQP or Redis backends')
 
         body, content_type, content_encoding = self._prepare(
             body, serializer, content_type, content_encoding,
@@ -84,10 +94,13 @@ class NonBlockingTaskProducer(TaskProducer):
                          mandatory=mandatory, immediate=immediate,
                          exchange=exchange, declare=declare)
 
-        if callback:
-            self.consumer.wait_for(task_id,
-                                   partial(self.on_result, task_id, callback),
-                                   self.prepare_expires(type=int))
+        self._message_seq += 1
+        self.coroutine_callbacks[self._message_seq] = callback
+        
+#         if callback:
+#             self.consumer.wait_for(task_id,
+#                                    partial(self.on_result, task_id, callback),
+#                                    self.prepare_expires(type=int))
         return result
 
     @cached_property
@@ -124,3 +137,33 @@ class NonBlockingTaskProducer(TaskProducer):
 
     def __repr__(self):
         return '<NonBlockingTaskProducer: {0.channel}>'.format(self)
+    
+    def on_delivery_confirmation(self, method_frame):
+        """Invoked by pika when RabbitMQ responds to a Basic.Publish RPC
+        command, passing in either a Basic.Ack or Basic.Nack frame with
+        the delivery tag of the message that was published. The delivery tag
+        is an integer counter indicating the message number that was sent
+        on the channel via Basic.Publish. Here we're just doing house keeping
+        to keep track of stats and remove message numbers that we expect
+        a delivery confirmation of from the list used to keep track of messages
+        that are pending confirmation.
+
+        :param pika.frame.Method method_frame: Basic.Ack or Basic.Nack frame
+
+        """
+        confirmation_type = method_frame.method.NAME.split('.')[1].lower()
+        delivery_tag = method_frame.method.delivery_tag
+        message = ('Received %s for delivery tag: %i' %
+                   (confirmation_type,
+                    delivery_tag))
+        _LOGGER.debug(message)
+        
+        if confirmation_type == 'ack':
+            self._acked += 1
+        elif confirmation_type == 'nack':
+            self._nacked += 1
+        else:
+            self._unknown_ack += 1
+        coroutine_callback = self.coroutine_callbacks.pop(delivery_tag)
+        if coroutine_callback:
+            coroutine_callback(delivery_tag)
