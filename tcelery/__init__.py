@@ -21,16 +21,18 @@ def setup_nonblocking_producer(celery_app=None, io_loop=None,
     producer_cls.app = celery_app
     producer_cls.conn_pool = ConnectionPool(limit, io_loop)
     producer_cls.result_cls = result_cls
+    broker_transport_options = celery_app.conf.get('BROKER_TRANSPORT_OPTIONS', {})
+    if (broker_transport_options and
+        broker_transport_options.get('confirm_publish') == True):
+        producer_cls.confirm_publish = True
     if celery_app.conf['BROKER_URL'] and celery_app.conf['BROKER_URL'].startswith('amqp'):
         celery.app.amqp.AMQP.producer_cls = producer_cls
 
     def connect():
         broker_url = celery_app.connection().as_uri(include_password=True)
         options = celery_app.conf.get('CELERYT_PIKA_OPTIONS', {})
-        broker_transport_options = celery_app.conf.get('BROKER_TRANSPORT_OPTIONS', {})
         producer_cls.conn_pool.connect(broker_url,
                                        options=options,
-                                       callback=on_ready,
-                                       broker_transport_options=broker_transport_options)
+                                       callback=on_ready)
 
     io_loop.add_callback(connect)

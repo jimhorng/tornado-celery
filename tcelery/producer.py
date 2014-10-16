@@ -40,6 +40,7 @@ class NonBlockingTaskProducer(TaskProducer):
     conn_pool = None
     app = None
     result_cls = AsyncResult
+    confirm_publish = False
 
     def __init__(self, channel=None, *args, **kwargs):
         super(NonBlockingTaskProducer, self).__init__(
@@ -50,8 +51,8 @@ class NonBlockingTaskProducer(TaskProducer):
         self._nacked = 0
         self._unknown_ack = 0
         self.coroutine_callbacks = {}
-        conn = self.conn_pool.connection()
-        if self._confirm_delivery_enabled(conn):
+        if self.confirm_publish:
+            conn = self.conn_pool.connection()
             conn.channel.confirm_delivery(callback=self.on_delivery_confirmation, nowait=True)
 
     def publish(self, body, routing_key=None, delivery_mode=None,
@@ -102,7 +103,7 @@ class NonBlockingTaskProducer(TaskProducer):
 #             self.consumer.wait_for(task_id,
 #                                    partial(self.on_result, task_id, callback),
 #                                    self.prepare_expires(type=int))
-        if not self._confirm_delivery_enabled(conn):
+        if not self.confirm_publish:
             callback(self.result_cls(result))
         return result
 
@@ -170,9 +171,3 @@ class NonBlockingTaskProducer(TaskProducer):
         coroutine_callback = self.coroutine_callbacks.pop(delivery_tag)
         if coroutine_callback:
             coroutine_callback(self.result_cls(None))
-    
-    def _confirm_delivery_enabled(self, connection):
-        if (connection.broker_transport_options and
-            connection.broker_transport_options.get('confirm_publish')):
-            return True
-        return False
