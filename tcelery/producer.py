@@ -14,6 +14,8 @@ from celery.backends.redis import RedisBackend
 from celery.utils import timeutils
 
 from .result import AsyncResult
+from .connection import Connection
+
 try:
     from .redis import RedisConsumer
 except ImportError:
@@ -41,6 +43,7 @@ class NonBlockingTaskProducer(TaskProducer):
     app = None
     result_cls = AsyncResult
     confirm_publish = False
+    conn_cls = Connection
 
     def __init__(self, channel=None, *args, **kwargs):
         super(NonBlockingTaskProducer, self).__init__(
@@ -52,9 +55,18 @@ class NonBlockingTaskProducer(TaskProducer):
         self._unknown_ack = 0
         self.coroutine_callbacks = {}
         if self.confirm_publish:
-            conn = self.conn_pool.connection()
-            conn.channel.confirm_delivery(callback=self.on_delivery_confirmation, nowait=True)
-
+            for conn in self.conn_pool.connections():
+                NonBlockingTaskProducer.set_confirm_delivery(conn.channel, producer=self)
+            #for future channels
+            self.conn_cls.additional_channel_setup = partial(NonBlockingTaskProducer.set_confirm_delivery,
+                                                             producer=self)
+    
+    @staticmethod
+    def set_confirm_delivery(channel, producer):
+        channel.confirm_delivery(callback=producer.on_delivery_confirmation, nowait=True)
+        producer.reset_message_seq()
+        producer.reset_coroutine_callbacks()
+    
     def publish(self, body, routing_key=None, delivery_mode=None,
                 mandatory=False, immediate=False, priority=0,
                 content_type=None, content_encoding=None, serializer=None,
@@ -171,3 +183,9 @@ class NonBlockingTaskProducer(TaskProducer):
         coroutine_callback = self.coroutine_callbacks.pop(delivery_tag)
         if coroutine_callback:
             coroutine_callback(self.result_cls(None))
+    
+    def reset_message_seq(self):
+        self._message_seq = 0
+        
+    def reset_coroutine_callbacks(self):
+        self.coroutine_callbacks.clear()

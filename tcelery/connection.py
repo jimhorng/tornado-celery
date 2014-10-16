@@ -20,6 +20,7 @@ from tornado import ioloop
 class Connection(object):
 
     content_type = 'application/x-python-serialize'
+    additional_channel_setup = None
 
     def __init__(self, io_loop=None):
         self.channel = None
@@ -61,6 +62,8 @@ class Connection(object):
 
     def on_channel_open(self, callback, channel):
         self.channel = channel
+        if self.additional_channel_setup:
+            self.additional_channel_setup(self.channel)
         if callback:
             callback()
 
@@ -135,3 +138,6 @@ class ConnectionPool(object):
     def connection(self):
         assert self._connection is not None
         return next(self._connection)
+
+    def connections(self):
+        return self._connections
