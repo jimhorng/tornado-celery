@@ -25,9 +25,11 @@ class Connection(object):
         self.channel = None
         self.connection = None
         self.url = None
+        self.broker_transport_options = None
         self.io_loop = io_loop or ioloop.IOLoop.instance()
 
-    def connect(self, url=None, options=None, callback=None):
+    def connect(self, url=None, options=None, callback=None, broker_transport_options=None):
+        self.broker_transport_options = broker_transport_options
         if url is not None:
             self.url = url
         purl = urlparse(self.url)
@@ -118,12 +120,13 @@ class ConnectionPool(object):
         self._connection = None
         self.io_loop = io_loop
 
-    def connect(self, broker_url, options=None, callback=None):
+    def connect(self, broker_url, options=None, callback=None, broker_transport_options=None):
         self._on_ready = callback
         for _ in range(self._limit):
             conn = Connection(io_loop=self.io_loop)
             conn.connect(broker_url, options=options,
-                         callback=partial(self._on_connect, conn))
+                         callback=partial(self._on_connect, conn),
+                         broker_transport_options=broker_transport_options)
 
     def _on_connect(self, connection):
         self._connections.append(connection)
