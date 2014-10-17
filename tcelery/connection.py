@@ -16,17 +16,21 @@ from pika.exceptions import AMQPConnectionError
 
 from tornado import ioloop
 
+LOGGER = logging.getLogger(__name__)
 
 class Connection(object):
 
     content_type = 'application/x-python-serialize'
     additional_channel_setup = None
 
-    def __init__(self, io_loop=None):
+    def __init__(self, io_loop=None, confirm_delivery=False):
         self.channel = None
         self.connection = None
         self.url = None
         self.io_loop = io_loop or ioloop.IOLoop.instance()
+        self.confirm_delivery = confirm_delivery
+        if self.confirm_delivery:
+            self.confirm_delivery_handler = ConfirmDeliveryHandler() 
 
     def connect(self, url=None, options=None, callback=None):
         if url is not None:
@@ -62,10 +66,16 @@ class Connection(object):
 
     def on_channel_open(self, callback, channel):
         self.channel = channel
-        if self.additional_channel_setup:
-            self.additional_channel_setup(self.channel)
+        if self.confirm_delivery:
+            self.init_confirm_delivery()
         if callback:
             callback()
+
+    def init_confirm_delivery(self):
+        self.channel.confirm_delivery(callback=self.confirm_delivery_handler.on_delivery_confirmation,
+                                      nowait=True)
+        self.confirm_delivery_handler.reset_message_seq()
+        self.confirm_delivery_handler.reset_coroutine_callbacks()
 
     def on_exchange_declare(self, frame):
         pass
@@ -121,10 +131,10 @@ class ConnectionPool(object):
         self._connection = None
         self.io_loop = io_loop
 
-    def connect(self, broker_url, options=None, callback=None):
+    def connect(self, broker_url, options=None, callback=None, confirm_delivery=False):
         self._on_ready = callback
         for _ in range(self._limit):
-            conn = Connection(io_loop=self.io_loop)
+            conn = Connection(io_loop=self.io_loop, confirm_delivery=confirm_delivery)
             conn.connect(broker_url, options=options,
                          callback=partial(self._on_connect, conn))
 
@@ -141,3 +151,50 @@ class ConnectionPool(object):
 
     def connections(self):
         return self._connections
+
+class ConfirmDeliveryHandler(object):
+    
+    def __init__(self):
+        self._message_seq = 0
+        self._acked = 0
+        self._nacked = 0
+        self._unknown_ack = 0
+        self.coroutine_callbacks = {}
+    
+    def on_delivery_confirmation(self, method_frame):
+        """Invoked by pika when RabbitMQ responds to a Basic.Publish RPC
+        command, passing in either a Basic.Ack or Basic.Nack frame with
+        the delivery tag of the message that was published. The delivery tag
+        is an integer counter indicating the message number that was sent
+        on the channel via Basic.Publish. After Basic.Ack is received, it
+        will call corresponding callback based on delivery tag number.
+
+        :param pika.frame.Method method_frame: Basic.Ack or Basic.Nack frame
+
+        """
+        confirmation_type = method_frame.method.NAME.split('.')[1].lower()
+        delivery_tag = method_frame.method.delivery_tag
+        message = ('Received %s for delivery tag: %i' %
+                   (confirmation_type,
+                    delivery_tag))
+        LOGGER.debug(message)
+        
+        if confirmation_type == 'ack':
+            self._acked += 1
+        elif confirmation_type == 'nack':
+            self._nacked += 1
+        else:
+            self._unknown_ack += 1
+        coroutine_callback = self.coroutine_callbacks.pop(delivery_tag)
+        if coroutine_callback:
+            coroutine_callback(None)
+    
+    def reset_message_seq(self):
+        self._message_seq = 0
+        
+    def reset_coroutine_callbacks(self):
+        self.coroutine_callbacks.clear()
+    
+    def add_callback(self, callback):
+        self._message_seq += 1
+        self.coroutine_callbacks[self._message_seq] = callback
