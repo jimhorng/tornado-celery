@@ -85,11 +85,12 @@ class NonBlockingTaskProducer(TaskProducer):
                          mandatory=mandatory, immediate=immediate,
                          exchange=exchange, declare=declare)
         
-        if conn.confirm_delivery:
-            conn.confirm_delivery_handler.add_callback(lambda result: callback(self.result_cls(result)))
-            
-        else:
-            callback(self.result_cls(result))
+        if callback:
+            if conn.confirm_delivery:
+                conn.confirm_delivery_handler.add_callback(lambda result: callback(self.result_cls(result)))
+                
+            else:
+                callback(self.result_cls(result))
         
 #         if callback:
 #             self.consumer.wait_for(task_id,
