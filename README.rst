@@ -11,7 +11,7 @@ tornado-celery is a non-blocking Celery client for Tornado web framework
 Usage
 -----
 
-Calling Celery tasks from Tornado RequestHandler: ::
+Calling Celery tasks(has return value) from Tornado RequestHandler: ::
 
     from tornado import gen, web
     import tcelery, tasks
@@ -19,23 +19,46 @@ Calling Celery tasks from Tornado RequestHandler: ::
     tcelery.setup_nonblocking_producer()
 
     class AsyncHandler(web.RequestHandler):
-        @asynchronous
+        @web.asynchronous
         def get(self):
-            tasks.echo.apply_async(args=['Hello world!'], callback=self.on_result)
+            tasks.echo.apply_async(args=['Hello world!'], callback=self.on_async_result)
 
-        def on_result(self, response):
-            self.write(str(response.result))
+        def on_async_result(self, async_result):
+            async_result.get(callback=self.on_actual_result)
+        
+        def on_actual_result(self, result):
+            self.write(str(result))
             self.finish()
 
-Calling tasks with generator-based interface: ::
+with generator-based interface: ::
 
     class GenAsyncHandler(web.RequestHandler):
-        @asynchronous
+        @web.asynchronous
         @gen.coroutine
         def get(self):
-            response = yield gen.Task(tasks.sleep.apply_async, args=[3])
-            self.write(str(response.result))
+            async_result = yield gen.Task(tasks.sleep.apply_async, args=[3])
+            result = yield gen.Task(async_result.get)
+            self.write(str(result))
             self.finish()
+
+Calling Celery tasks(no return value) from Tornado RequestHandler: ::
+
+    @web.asynchronous
+    def get(self):
+        tasks.echo.apply_async(args=['Hello world!'], callback=self.on_async_result)
+
+    def on_async_result(self, async_result):
+        self.write("task sent") # ack-ed if BROKER_TRANSPORT_OPTIONS: {'confirm_publish': True}
+        self.finish()
+
+with generator-based interface: ::
+
+    @web.asynchronous
+    @gen.coroutine
+    def get(self):
+        yield gen.Task(tasks.sleep.apply_async, args=[3])
+        self.write("task sent") # ack-ed if BROKER_TRANSPORT_OPTIONS: {'confirm_publish': True}
+        self.finish()
 
 **NOTE:** Currently callbacks only work with AMQP and Redis backends.
 To use the Redis backend, you must install `tornado-redis
