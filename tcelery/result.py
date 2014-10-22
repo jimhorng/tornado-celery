@@ -30,7 +30,7 @@ class AsyncResult(celery.result.AsyncResult):
     @property
     def result(self):
         return self._result or super(AsyncResult, self).result
-    
+
     def get(self, callback=None):
         self._producer.fail_if_backend_not_supported()
         self._producer.consumer.wait_for(self.task_id,
@@ -44,7 +44,7 @@ class AsyncResult(celery.result.AsyncResult):
         self._result = reply.get('result')
         if callback:
             callback(self._result)
-    
+
     def _get_task_meta(self):
         self._producer.fail_if_backend_not_supported()
         return super(AsyncResult, self)._get_task_meta()

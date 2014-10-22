@@ -38,7 +38,6 @@ class NonBlockingTaskProducer(TaskProducer):
     conn_pool = None
     app = None
     result_cls = AsyncResult
-    confirm_publish = False
 
     def __init__(self, channel=None, *args, **kwargs):
         super(NonBlockingTaskProducer, self).__init__(
@@ -80,7 +79,7 @@ class NonBlockingTaskProducer(TaskProducer):
                          properties=properties, routing_key=routing_key,
                          mandatory=mandatory, immediate=immediate,
                          exchange=exchange, declare=declare)
-        
+
         if callback:
             async_result = self.result_cls(task_id=task_id,
                                            result=result,
@@ -88,12 +87,12 @@ class NonBlockingTaskProducer(TaskProducer):
             if conn.confirm_delivery:
                 conn.confirm_delivery_handler.add_callback(lambda result:
                                                            callback(async_result))
-                
+
             else:
                 callback(async_result)
 
         return result
-    
+
     @cached_property
     def consumer(self):
         Consumer = {

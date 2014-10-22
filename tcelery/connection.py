@@ -21,7 +21,6 @@ LOGGER = logging.getLogger(__name__)
 class Connection(object):
 
     content_type = 'application/x-python-serialize'
-    additional_channel_setup = None
 
     def __init__(self, io_loop=None, confirm_delivery=False):
         self.channel = None
@@ -148,9 +147,6 @@ class ConnectionPool(object):
     def connection(self):
         assert self._connection is not None
         return next(self._connection)
-
-    def connections(self):
-        return self._connections
 
 class ConfirmDeliveryHandler(object):
     
