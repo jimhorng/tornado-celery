@@ -230,14 +230,14 @@ Apply tasks synchronously. Function returns when the task is finished
                 partial(self.on_time, task_id))
 
         task.apply_async(args=args, kwargs=kwargs, task_id=task_id,
-                         callback=partial(self.on_future_result, htimeout),
+                         callback=partial(self.on_async_result, htimeout),
                          **options)
     
-    def on_future_result(self, htimeout, future_result):
-        self._result = future_result
-        future_result.get(callback=partial(self.on_complete, htimeout))
+    def on_async_result(self, htimeout, async_result):
+        self._result = async_result
+        async_result.get(callback=partial(self.on_actual_result, htimeout))
 
-    def on_complete(self, htimeout, result):
+    def on_actual_result(self, htimeout, result):
         if self._finished:
             return
         if htimeout:
