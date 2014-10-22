@@ -2,7 +2,6 @@ from __future__ import absolute_import
 
 import sys
 
-from functools import partial
 from datetime import timedelta
 
 from kombu import serialization
@@ -60,10 +59,6 @@ class NonBlockingTaskProducer(TaskProducer):
 
         if callback and not callable(callback):
             raise ValueError('callback should be callable')
-#         if callback and not isinstance(self.app.backend,
-#                                        (AMQPBackend, RedisBackend)):
-#             raise NotImplementedError(
-#                 'callback can be used only with AMQP or Redis backends')
 
         body, content_type, content_encoding = self._prepare(
             body, serializer, content_type, content_encoding,
@@ -86,16 +81,16 @@ class NonBlockingTaskProducer(TaskProducer):
                          exchange=exchange, declare=declare)
         
         if callback:
+            async_result = self.result_cls(task_id=task_id,
+                                           result=result,
+                                           producer=self)
             if conn.confirm_delivery:
-                conn.confirm_delivery_handler.add_callback(lambda result: callback(self.result_cls(result)))
+                conn.confirm_delivery_handler.add_callback(lambda result:
+                                                           callback(async_result))
                 
             else:
-                callback(self.result_cls(result))
-        
-#         if callback:
-#             self.consumer.wait_for(task_id,
-#                                    partial(self.on_result, task_id, callback),
-#                                    self.prepare_expires(type=int))
+                callback(async_result)
+
         return result
     
     @cached_property
@@ -115,12 +110,6 @@ class NonBlockingTaskProducer(TaskProducer):
                                     content_type=self.content_type,
                                     content_encoding=self.content_encoding)
 
-    def on_result(self, task_id, callback, reply):
-        reply = self.decode(reply)
-        reply['task_id'] = task_id
-        result = self.result_cls(**reply)
-        callback(result)
-
     def prepare_expires(self, value=None, type=None):
         if value is None:
             value = self.app.conf.CELERY_TASK_RESULT_EXPIRES
@@ -129,6 +118,12 @@ class NonBlockingTaskProducer(TaskProducer):
         if value is not None and type:
             return type(value * 1000)
         return value
+
+    def fail_if_backend_not_supported(self):
+        if not isinstance(self.app.backend,
+                          (AMQPBackend, RedisBackend)):
+            raise NotImplementedError(
+                'result retrieval can be used only with AMQP or Redis backends')
 
     def __repr__(self):
         return '<NonBlockingTaskProducer: {0.channel}>'.format(self)

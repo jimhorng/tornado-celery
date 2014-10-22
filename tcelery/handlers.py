@@ -230,20 +230,24 @@ Apply tasks synchronously. Function returns when the task is finished
                 partial(self.on_time, task_id))
 
         task.apply_async(args=args, kwargs=kwargs, task_id=task_id,
-                         callback=partial(self.on_complete, htimeout),
+                         callback=partial(self.on_future_result, htimeout),
                          **options)
+    
+    def on_future_result(self, htimeout, future_result):
+        self._result = future_result
+        future_result.get(callback=partial(self.on_complete, htimeout))
 
     def on_complete(self, htimeout, result):
         if self._finished:
             return
         if htimeout:
             ioloop.IOLoop.instance().remove_timeout(htimeout)
-        response = {'task-id': result.task_id, 'state': result.state}
-        if result.successful():
-            response['result'] = result.result
+        response = {'task-id': self._result.task_id, 'state': self._result.state}
+        if self._result.successful():
+            response['result'] = result
         else:
-            response['traceback'] = result.traceback
-            response['error'] = repr(result.result)
+            response['traceback'] = self._result.traceback
+            response['error'] = repr( self._result.result)
         self.write(response)
         self.finish()
 
