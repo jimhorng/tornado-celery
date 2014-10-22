@@ -43,7 +43,7 @@ class AsyncResult(celery.result.AsyncResult):
         self._traceback = reply.get('traceback')
         self._result = reply.get('result')
         if callback:
-            callback(self.result)
+            callback(self._result)
     
     def _get_task_meta(self):
         self._producer.fail_if_backend_not_supported()
