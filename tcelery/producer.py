@@ -10,6 +10,7 @@ from kombu.utils import cached_property
 from celery.app.amqp import TaskProducer
 from celery.backends.amqp import AMQPBackend
 from celery.backends.redis import RedisBackend
+from celery.backends.base import DisabledBackend
 from celery.utils import timeutils
 
 from .result import AsyncResult
@@ -121,7 +122,7 @@ class NonBlockingTaskProducer(TaskProducer):
 
     def fail_if_backend_not_supported(self):
         if not isinstance(self.app.backend,
-                          (AMQPBackend, RedisBackend)):
+                          (AMQPBackend, RedisBackend, DisabledBackend)):
             raise NotImplementedError(
                 'result retrieval can be used only with AMQP or Redis backends')
 
